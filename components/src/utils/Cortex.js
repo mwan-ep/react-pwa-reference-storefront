@@ -23,19 +23,34 @@ import * as UserPrefs from './UserPrefs';
 import mockFetch from './Mock';
 import { getConfig } from './ConfigProvider';
 
+export function timeout(ms, promise) {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      reject();
+    }, ms);
+    promise.then(resolve, reject);
+  });
+}
+
 export function cortexFetch(input, init) {
   const Config = getConfig().config;
   const requestInit = init;
 
   if (requestInit && requestInit.headers) {
     requestInit.headers['x-ep-user-traits'] = `LOCALE=${UserPrefs.getSelectedLocaleValue()}, CURRENCY=${UserPrefs.getSelectedCurrencyValue()}`;
+    if (localStorage.getItem(`${Config.cortexApi.scope}_oAuthUserId`) && localStorage.getItem(`${Config.cortexApi.scope}_oAuthImpersonationToken`)) {
+      requestInit.headers['x-ep-user-id'] = localStorage.getItem(`${Config.cortexApi.scope}_oAuthUserId`);
+      requestInit.headers['x-ep-impersonation-token'] = localStorage.getItem(`${Config.cortexApi.scope}_oAuthImpersonationToken`);
+      requestInit.headers['x-ep-user-roles'] = localStorage.getItem(`${Config.cortexApi.scope}_oAuthRole`);
+      requestInit.headers['x-ep-user-scopes'] = localStorage.getItem(`${Config.cortexApi.scope}_oAuthScope`);
+    }
   }
 
   if (Config.enableOfflineMode) {
     return mockFetch(input, requestInit);
   }
 
-  return fetch(`${Config.cortexApi.path + input}`, requestInit)
+  return timeout(Config.cortexApi.reqTimeout || 30000, fetch(`${Config.cortexApi.path + input}`, requestInit)
     .then((res) => {
       if ((res.status === 401 || res.status === 403) && input != '/oauth2/tokens') {
         localStorage.removeItem(`${Config.cortexApi.scope}_oAuthRole`);
@@ -46,6 +61,8 @@ export function cortexFetch(input, init) {
         localStorage.removeItem(`${Config.cortexApi.scope}_oAuthTokenAuthService`);
         localStorage.removeItem(`${Config.cortexApi.scope}_keycloakSessionState`);
         localStorage.removeItem(`${Config.cortexApi.scope}_keycloakCode`);
+        localStorage.removeItem(`${Config.cortexApi.scope}_oAuthUserId`);
+        localStorage.removeItem(`${Config.cortexApi.scope}_oAuthImpersonationToken`);
         window.location.pathname = '/';
         window.location.reload();
       }
@@ -59,6 +76,12 @@ export function cortexFetch(input, init) {
     .catch((error) => {
       // eslint-disable-next-line no-console
       console.error(error.message);
+    }))
+    .catch(() => {
+      if (window.location.href.indexOf('/maintenance') === -1) {
+        window.location.pathname = '/maintenance';
+      }
+      return new Response(new Blob(), {});
     });
 }
 
@@ -74,7 +97,7 @@ export function adminFetch(input, init) {
     return mockFetch(input, requestInit);
   }
 
-  return fetch(`${Config.b2b.authServiceAPI.path + input}`, requestInit)
+  return timeout(Config.b2b.authServiceAPI.reqTimeout || 30000, fetch(`${Config.b2b.authServiceAPI.path + input}`, requestInit)
     .then((res) => {
       if (res.status === 401 || res.status === 403) {
         localStorage.removeItem(`${Config.cortexApi.scope}_oAuthRole`);
@@ -98,5 +121,11 @@ export function adminFetch(input, init) {
     .catch((error) => {
       // eslint-disable-next-line no-console
       console.error(error.message);
+    }))
+    .catch(() => {
+      if (window.location.href.indexOf('/maintenance') === -1) {
+        window.location.pathname = '/maintenance';
+      }
+      return new Response(new Blob(), {});
     });
 }
